@@ -1,0 +1,223 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Keypad.h>
+#include <DHT.h> // Importamos la librería del sensor
+
+// Configuración del DHT22
+#define DHTPIN 10       // Pin digital donde conectamos el pin de datos del DHT22
+#define DHTTYPE DHT22   // Definimos el tipo de sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+// Configuración de la pantalla LCD I2C
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Configuración del Teclado Matricial 4x4
+const byte FILAS = 4;
+const byte COLUMNAS = 4;
+char keys[FILAS][COLUMNAS] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
+};
+
+byte pinesFilas[FILAS] = {9, 8, 7, 6}; 
+byte pinesColumnas[COLUMNAS] = {5, 4, 3, 2}; 
+
+Keypad teclado = Keypad(makeKeymap(keys), pinesFilas, pinesColumnas, FILAS, COLUMNAS);
+
+// Variables para el reloj simulado
+int horas = 12;
+int minutos = 0;
+int segundos = 0;
+unsigned long previoMillis = 0;
+
+// Variables para la Alarma
+int alarmaHoras = 6;
+int alarmaMinutos = 0;
+bool alarmaActiva = false;
+
+// Variables de Clima (ahora se actualizarán con el sensor)
+float temperatura = 0.0;
+float humedad = 0.0;
+unsigned long previoMillisDHT = 0; 
+const long intervaloDHT = 2000; // El DHT22 lee datos cada 2 segundos
+
+// Estados del Menú
+enum Estados { MOSTRAR_RELOJ, MENU_PRINCIPAL, SET_HORA, SET_ALARMA, MOSTRAR_CLIMA };
+Estados estadoActual = MOSTRAR_RELOJ;
+
+void setup() {
+  lcd.init();
+  lcd.backlight();
+  Serial.begin(9600);
+  
+  dht.begin(); // Inicializamos el sensor DHT22
+}
+
+void loop() {
+  actualizarReloj(); 
+  leerSensorDHT();    // Lee el sensor en segundo plano sin trabar el menú
+  
+  char tecla = teclado.getKey();
+
+  switch (estadoActual) {
+    
+    case MOSTRAR_RELOJ:
+      pantallaPrincipal();
+      if (tecla == 'A') { 
+        estadoActual = MENU_PRINCIPAL;
+        lcd.clear();
+      }
+      break;
+
+    case MENU_PRINCIPAL:
+      lcd.setCursor(0, 0);
+      lcd.print("1:Hora 2:Alarma");
+      lcd.setCursor(0, 1);
+      lcd.print("3:Clima *:Volver");
+      
+      if (tecla == '1') { estadoActual = SET_HORA; lcd.clear(); }
+      if (tecla == '2') { estadoActual = SET_ALARMA; lcd.clear(); }
+      if (tecla == '3') { estadoActual = MOSTRAR_CLIMA; lcd.clear(); }
+      if (tecla == '*') { estadoActual = MOSTRAR_RELOJ; lcd.clear(); }
+      break;
+
+    case SET_HORA:
+      configurarHora();
+      break;
+
+    case SET_ALARMA:
+      configurarAlarma();
+      break;
+
+    case MOSTRAR_CLIMA:
+      lcd.setCursor(0, 0);
+      // Validamos si la lectura falló antes de mostrarla
+      if (isnan(temperatura) || isnan(humedad)) {
+        lcd.print("Error sensor DHT");
+      } else {
+        lcd.print("Temp: " + String(temperatura, 1) + " C");
+        lcd.setCursor(0, 1);
+        lcd.print("Humedad: " + String(humedad, 0) + "%");
+      }
+      
+      if (tecla == '*') { 
+        estadoActual = MENU_PRINCIPAL;
+        lcd.clear();
+      }
+      break;
+  }
+}
+
+// --- FUNCIONES DE SOPORTE ---
+
+void actualizarReloj() {
+  if (millis() - previoMillis >= 1000) {
+    previoMillis = millis();
+    segundos++;
+    if (segundos >= 60) {
+      segundos = 0;
+      minutos++;
+      if (minutos >= 60) {
+        minutos = 0;
+        horas++;
+        if (horas >= 24) horas = 0;
+      }
+    }
+    if (alarmaActiva && horas == alarmaHoras && minutos == alarmaMinutos && segundos == 0) {
+      Serial.println("¡¡¡ALARMA SONANDO!!!");
+    }
+  }
+}
+
+// Función para leer el DHT22 cada 2 segundos de forma no bloqueante
+void leerSensorDHT() {
+  if (millis() - previoMillisDHT >= intervaloDHT) {
+    previoMillisDHT = millis();
+    
+    // Leemos la temperatura y humedad reales del sensor
+    float nuevaHumedad = dht.readHumidity();
+    float nuevaTemperatura = dht.readTemperature();
+
+    // Solo actualizamos las variables si la lectura es correcta
+    if (!isnan(nuevaHumedad) && !isnan(nuevaTemperatura)) {
+      humedad = nuevaHumedad;
+      temperatura = nuevaTemperatura;
+    }
+  }
+}
+
+void pantallaPrincipal() {
+  lcd.setCursor(0, 0);
+  lcd.print("Reloj: ");
+  if(horas < 10) lcd.print("0"); lcd.print(horas); lcd.print(":");
+  if(minutos < 10) lcd.print("0"); lcd.print(minutos); lcd.print(":");
+  if(segundos < 10) lcd.print("0"); lcd.print(segundos);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("A para Menu      ");
+}
+
+void configurarHora() {
+  lcd.setCursor(0, 0);
+  lcd.print("Ingresa Hora(HH)");
+  
+  int nuevaHora = ingresarValorDosDigitos();
+  if (nuevaHora >= 0 && nuevaHora < 24) {
+    horas = nuevaHora;
+    segundos = 0;
+  }
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Ingresa Min(MM)");
+  int nuevosMin = ingresarValorDosDigitos();
+  if (nuevosMin >= 0 && nuevosMin < 60) {
+    minutos = nuevosMin;
+  }
+
+  estadoActual = MOSTRAR_RELOJ;
+  lcd.clear();
+}
+
+void configurarAlarma() {
+  lcd.setCursor(0, 0);
+  lcd.print("Alarma (HH):");
+  int hh = ingresarValorDosDigitos();
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Alarma (MM):");
+  int mm = ingresarValorDosDigitos();
+
+  if (hh >= 0 && hh < 24 && mm >= 0 && mm < 60) {
+    alarmaHoras = hh;
+    alarmaMinutos = mm;
+    alarmaActiva = true;
+    lcd.clear();
+    lcd.print("Alarma Guardada");
+  } else {
+    lcd.clear();
+    lcd.print("Datos invalidos");
+  }
+  delay(1500);
+  estadoActual = MENU_PRINCIPAL;
+  lcd.clear();
+}
+
+int ingresarValorDosDigitos() {
+  String valor = "";
+  lcd.setCursor(0, 1);
+  lcd.print("__");
+  lcd.setCursor(0, 1);
+  
+  while (valor.length() < 2) {
+    char t = teclado.getKey();
+    if (t >= '0' && t <= '9') {
+      valor += t;
+      lcd.print(t);
+    }
+  }
+  return valor.toInt();
+}
