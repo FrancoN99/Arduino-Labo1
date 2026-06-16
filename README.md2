@@ -1,8 +1,0 @@
-Nuestro proyecto utiliza un RTC DS3231 para mantener la hora aunque Arduino se apague.
-Las cinco alarmas se almacenan en la memoria EEPROM AT24C32 del módulo ZS-042,
-donde cada alarma ocupa tres bytes: estado, hora y minuto. El programa utiliza una
-máquina de estados para controlar las diferentes pantallas del menú. Una vez por segundo
-compara la hora del RTC con todas las alarmas activas. Cuando encuentra una coincidencia,
-activa el buzzer de manera intermitente hasta que el usuario presiona una tecla. También
-incorporamos un DHT11 para mostrar temperatura y humedad, y un sensor KY-018 que
-controla automáticamente la luz de fondo del LCD.
